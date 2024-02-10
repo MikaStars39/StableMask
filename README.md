@@ -36,10 +36,12 @@ pip install -r requirements.txt
 ## Citation
 Please cite:
 ```
-@article{stablemask,
-  title={},
-  author={},
-  journal={},
-  year={2023}
+@misc{yin2024stablemask,
+      title={StableMask: Refining Causal Masking in Decoder-only Transformer}, 
+      author={Qingyu Yin and Xuzheng He and Xiang Zhuang and Yu Zhao and Jianhua Yao and Xiaoyu Shen and Qiang Zhang},
+      year={2024},
+      eprint={2402.04779},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL}
 }
 ```
