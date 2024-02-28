@@ -30,7 +30,13 @@ pip install -r requirements.txt
 - CUDA 12.0+
 
 ## Pretraining
+Pretrain a toy example using the wikitext-103 dataset
+```
+bash train.sh
+```
+
 ## Finetuning
+
 ## Inference
 
 ## Citation
