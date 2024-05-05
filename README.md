@@ -8,6 +8,7 @@
 ## News
 
 **2024/05/02** 🔥 Our paper has been accepted by ICML'24! See you in Vienna!
+
 **2024/02/10** 📖 We have uploaded our preprint to ArXiv!
 
 ## Abstract
