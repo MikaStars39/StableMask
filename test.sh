@@ -10,10 +10,10 @@ export TORCH_DISTRIBUTED_DEBUG=INFO
 export HF_ENDPOINT=https://hf-mirror.com
 
 python main.py \
---mode "train" \
+--mode "test" \
 --use_model "miniGPT" \
 --n_head 12 \
---load_model  "" \
+--load_model  "test/rope/New_RoPEepoch=3-step=124000.ckpt" \
 --proj_dir "test" \
 --data_file "/home/qingyu_yin/data/RWKV/pile/pile/train" \
 --data_type "minipile" \
@@ -25,7 +25,7 @@ python main.py \
 --epoch_begin 0 \
 --epoch_begin_steps 0 \
 --epoch_save 2000 \
---micro_bsz 16 \
+--micro_bsz 1 \
 --n_layer 12 \
 --n_embd 768 \
 --lr_init 5e-4 \

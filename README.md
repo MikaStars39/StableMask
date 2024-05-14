@@ -36,10 +36,29 @@ pip install -r requirements.txt
 - CUDA 12.0+
 
 ## Pretraining
-Pretrain a toy example using the wikitext-103 dataset
+Here we provide a guide for pretraining a toy example using the wikitext-103 dataset.
+
+### 1. Dataset preparing.
+   
+First make sure that you are under the stablemask folder. We create a folder for our dataset.
 ```
-bash train.sh
+mkdir dataset
+cd dataset
 ```
+Then download wikitext-103 dataset. Here we choose the huggingface-cli. See [this link](https://huggingface.co/docs/huggingface_hub/guides/cli) for further instruction. 
+
+For users who fail to directly visit huggingface, we recommend to use hf-mirror:
+```
+export HF_ENDPOINT=https://hf-mirror.com
+```
+
+Download wikitext-103 dataset with huggingface-cli:
+
+```
+huggingface-cli download --repo-type dataset --resume-download wikitext --local-dir wikitext --local-dir-use-symlinks False
+```
+
+### 2. 
 
 ## Finetuning
 

@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from torch import nn
 from einops import rearrange
 from src.utils import get_alibi_biases, apply_rotary_emb, RMSNorm, precompute_freqs_cis
-from sec.utils import visualize_attention
+from src.utils import visualize_attention
 
 
 @dataclass
@@ -19,8 +19,8 @@ class ModelArgs:
     n_layers: int = 32
     n_heads: int = 32
     n_kv_heads: Optional[int] = None
-    vocab_size: int = -1  # defined later by tokenizer
-    multiple_of: int = 256  # make SwiGLU hidden layer size multiple of large power of 2
+    vocab_size: int = -1
+    multiple_of: int = 256
     ffn_dim_multiplier: Optional[float] = None
     norm_eps: float = 1e-5
     att_type: str = "RoPE"
@@ -43,95 +43,60 @@ def repeat_kv(x: torch.Tensor,
 
 class Attention(nn.Module):
     def __init__(self,
-                 args: ModelArgs):
+                 hidden_dim: int,
+                 n_heads: int,
+                 ):
         super().__init__()
-        self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
-        self.n_local_heads = args.n_heads
-        self.n_local_kv_heads = self.n_kv_heads
-        self.n_rep = self.n_local_heads // self.n_local_kv_heads
-        self.head_dim = args.dim // args.n_heads
+        self.n_heads = n_heads
+        self.head_dim = hidden_dim // n_heads
         self.att_type = args.att_type
-        self.max_seq_len = args.max_seq_len
 
         self.wq = nn.Linear(args.dim, args.dim, bias=False)
         self.wk = nn.Linear(args.dim, args.dim, bias=False)
         self.wv = nn.Linear(args.dim, args.dim, bias=False)
         self.wo = nn.Linear(args.dim, args.dim, bias=False)
-        self.cache_k = torch.zeros(
-            (
-                args.max_batch_size,
-                args.max_seq_len,
-                self.n_local_kv_heads,
-                self.head_dim,
-            )
-        )
-        self.cache_v = torch.zeros(
-            (
-                args.max_batch_size,
-                args.max_seq_len,
-                self.n_local_kv_heads,
-                self.head_dim,
-            )
-        )
 
     def forward(
             self,
             x: torch.Tensor,
-            start_pos: int,
             freqs_cis: torch.Tensor,
             mask,
     ):
         bsz, seqlen, _ = x.shape
-        xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+        queries, keys, values = self.wq(x), self.wk(x), self.wv(x)
 
-        xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
-        xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
-        xv = xv.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
+        queries = queries.view(bsz, seqlen, self.n_heads, self.head_dim)
+        keys = keys.view(bsz, seqlen, self.n_heads, self.head_dim)
+        values = values.view(bsz, seqlen, self.n_heads, self.head_dim)
 
         if "RoPE" in self.att_type:
-            xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
+            queries, keys = apply_rotary_emb(queries, keys, freqs_cis=freqs_cis)
 
-        # self.cache_k = self.cache_k.to(xq)
-        # self.cache_v = self.cache_v.to(xq)
-        #
-        # self.cache_k[:bsz, start_pos: start_pos + seqlen] = xk
-        # self.cache_v[:bsz, start_pos: start_pos + seqlen] = xv
-        #
-        # keys = self.cache_k[:bsz, : start_pos + seqlen]
-        # values = self.cache_v[:bsz, : start_pos + seqlen]
-        keys = xk
-        values = xv
-
-        # repeat k/v heads if n_kv_heads < n_heads
-        keys = repeat_kv(keys, self.n_rep)
-        values = repeat_kv(values, self.n_rep)
-
-        xq = xq.transpose(1, 2)
+        queries = queries.transpose(1, 2)
         keys = keys.transpose(1, 2)
         values = values.transpose(1, 2)
-        scores = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
+
+        scores = torch.matmul(queries, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
+
         if "ALiBi" in self.att_type:
             if "New" in self.att_type:
                 scores = scores * mask[0] + mask[1]
-                scores = F.softmax(scores.float(), dim=-1).type_as(xq) * mask[0]
+                scores = F.softmax(scores.float(), dim=-1).type_as(queries) * mask[0]
             else:
-                scores = scores + freqs_cis + mask
-                scores = F.softmax(scores.float(), dim=-1).type_as(xq)
+                scores = scores + mask
+                scores = F.softmax(scores.float(), dim=-1).type_as(queries)
         elif "RoPE" in self.att_type:
             if "New" in self.att_type:
                 scores = scores * math.log(seqlen, 1024) * mask[0] + mask[1]
-                scores = F.softmax(scores.float(), dim=-1).type_as(xq) * mask[0]
+                scores = F.softmax(scores.float(), dim=-1).type_as(queries) * mask[0]
             else:
                 scores = scores + mask
-                scores = F.softmax(scores.float(), dim=-1).type_as(xq)
+                scores = F.softmax(scores.float(), dim=-1).type_as(queries)
 
         output = torch.matmul(scores, values)
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
 
-        if "output_attentions" in self.att_type:
-            return self.wo(output), scores.no_grad()
-        else:
-            return self.wo(output)
+        return self.wo(output)
 
 
 class FeedForward(nn.Module):
@@ -140,12 +105,9 @@ class FeedForward(nn.Module):
             dim: int,
             hidden_dim: int,
             multiple_of: int,
-            ffn_dim_multiplier: Optional[float],
     ):
         super().__init__()
         hidden_dim = int(2 * hidden_dim / 3)
-        if ffn_dim_multiplier is not None:
-            hidden_dim = int(ffn_dim_multiplier * hidden_dim)
         hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
 
         self.w1 = nn.Linear(dim, hidden_dim, bias=False)
@@ -158,63 +120,69 @@ class FeedForward(nn.Module):
 
 class TransformerBlock(nn.Module):
     def __init__(self,
-                 layer_id: int,
-                 args: ModelArgs):
+                 hidden_dim: int,
+                 n_heads: int,
+                 multiple_of: int,
+                 att_type: str,
+                 ):
         super().__init__()
-        self.n_heads = args.n_heads
-        self.dim = args.dim
-        self.head_dim = args.dim // args.n_heads
-        self.attention = Attention(args)
-        self.att_type = args.att_type
-        self.feed_forward = FeedForward(
-            dim=args.dim,
-            hidden_dim=4 * args.dim,
-            multiple_of=args.multiple_of,
-            ffn_dim_multiplier=args.ffn_dim_multiplier,
+        self.dim = hidden_dim
+        self.att_type = att_type
+
+        self.attention = Attention(
+            hidden_dim=hidden_dim,
+            n_heads=n_heads,
         )
-        self.layer_id = layer_id
+        self.feed_forward = FeedForward(
+            dim=hidden_dim,
+            hidden_dim=4 * hidden_dim,
+            multiple_of=multiple_of,
+        )
+
         self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
         self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
 
     def forward(
             self,
             x: torch.Tensor,
-            start_pos: int,
             freqs_cis: torch.Tensor,
             mask,
     ):
-        h = self.attention.forward(
-            self.attention_norm(x), start_pos, freqs_cis, mask
-        )
-        if "output_attentions" in self.att_type:
-            scores = h[1]
-            h = h[0]
-        h = h + x
+        h = self.attention(self.attention_norm(x), freqs_cis, mask) + x
         out = h + self.feed_forward(self.ffn_norm(h))
-        return out, scores if "output_attentions" in self.att_type else out
+        return out
 
 
 class Transformer(nn.Module):
     def __init__(self,
-                 params: ModelArgs):
+                 vocab_size: int,
+                 n_layers: int,
+                 n_heads: int,
+                 hidden_dim: int,
+                 multiple_of: int,
+                 max_seq_len: int,
+                 norm_eps: float,
+                 att_type: str,
+                 ):
         super().__init__()
-        self.params = params
-        self.vocab_size = params.vocab_size
-        self.n_layers = params.n_layers
-        self.head_dim = params.dim // params.n_heads
 
-        self.tok_embeddings = nn.Embedding(self.vocab_size, params.dim)
+        self.tok_embeddings = nn.Embedding(vocab_size, hidden_dim)
 
         self.layers = torch.nn.ModuleList()
-        for layer_id in range(params.n_layers):
-            self.layers.append(TransformerBlock(layer_id, params))
+        for layer_id in range(n_layers):
+            self.layers.append(TransformerBlock(
+                hidden_dim=hidden_dim,
+                n_heads=n_heads,
+                multiple_of=multiple_of,
+                att_type=att_type,
+            ))
 
-        self.norm = RMSNorm(params.dim, eps=params.norm_eps)
-        self.output = nn.Linear(params.dim, params.vocab_size, bias=False)
+        self.norm = RMSNorm(hidden_dim, eps=norm_eps)
+        self.output = nn.Linear(hidden_dim, vocab_size, bias=False)
 
         self.freqs_cis = precompute_freqs_cis(
-            self.params.dim // self.params.n_heads,
-            self.params.max_seq_len * 2
+            hidden_dim // n_heads,
+            max_seq_len * 2
         )
         self.apply(self._init_weights)
 
@@ -227,76 +195,38 @@ class Transformer(nn.Module):
         if isinstance(module, nn.Linear) and module.bias is not None:
             module.bias.data.zero_()
 
-    def forward(self,
-                tokens: torch.Tensor,
-                start_pos: int,):
+    def forward(self, tokens: torch.Tensor):
 
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
 
-        if "New" in self.params.att_type:
-            mask = torch.full(
-                (seqlen, seqlen), float("1"), device=tokens.device
-            )
-            mask = 1 - torch.triu(mask, diagonal=1)
-            alibi_mask = get_alibi_biases(self.params.n_heads, -mask.flip(dims=[1])).flip(dims=[1]).permute(2, 0, 1)
-            alibi_mask = alibi_mask.flip(dims=[0, 1]).contiguous() * (1 - mask)
-            mask = [mask, alibi_mask]
-        else:
-            mask = torch.full(
-                (seqlen, seqlen), float("-inf"), device=tokens.device
-            )
-            mask = torch.triu(mask, diagonal=1)
+        mask = get_mask(seqlen, _bsz, self.att_type)
+        freqs_cis = self.freqs_cis[:, :seqlen]
 
-            # When performing key-value caching, we compute the attention scores
-            # only for the new sequence. Thus, the matrix of scores is of size
-            # (seqlen, cache_len + seqlen), and the only masked entries are (i, j) for
-            # j > cache_len + i, since row i corresponds to token cache_len + i.
-            # mask = torch.hstack([
-            #     torch.zeros((seqlen, start_pos), device=tokens.device),
-            #     mask
-            # ]).type_as(h)
-
-        if "ALiBi" in self.params.att_type:
-            mask_ = torch.full(
-                (seqlen, seqlen), float("1"), device=tokens.device
-            )
-            mask_ = 1 - torch.triu(mask_, diagonal=1)
-            alibi = get_alibi_biases(self.params.n_heads, -mask_.flip(dims=[1])).flip(dims=[1])
-            freqs_cis = alibi.permute(2, 0, 1)
-        else:
-            self.freqs_cis = self.freqs_cis.to(h.device)
-            freqs_cis = self.freqs_cis[start_pos: start_pos + seqlen]
-
-        if "output_attentions" in self.params.att_type:
-            scores = []
-            for layer in self.layers:
-                h, score = layer(h, start_pos, freqs_cis, mask)
-                scores.append(score)
-        else:
-            for layer in self.layers:
-                h = layer(h, start_pos, freqs_cis, mask)
+        for layer in self.layers:
+            h = layer(h, start_pos, freqs_cis, mask)
 
         h = self.norm(h)
         output = self.output(h).float()
 
-        return output, scores
+        return output
 
 
 class MyModule(LightningModule):
-    def __init__(self,
-                 args):
+    def __init__(self, args):
         super().__init__()
         self.args = args
-        self.model = Transformer(ModelArgs(max_seq_len=args.ctx_len,
-                                           vocab_size=args.vocab_size,
-                                           dim=args.n_embd,
-                                           max_batch_size=args.micro_bsz,
-                                           n_layers=args.n_layer,
-                                           n_heads=args.n_head,
-                                           att_type=args.att_type,
-                                           train_ctx_len=args.train_ctx_len,
-                                           ))
+
+        self.model = Transformer(
+            vocab_size=args.vocab_size,
+            n_layers=args.n_layer,
+            n_heads=args.n_head,
+            hidden_dim=args.n_embd,
+            multiple_of=args.multiple_of,
+            max_seq_len=args.ctx_len,
+            norm_eps=args.norm_eps,
+            att_type=args.att_type,
+            )
 
         self.pad_tokenizer = AutoTokenizer.from_pretrained("src/gpt2", use_fast=True)
         self.pad_tokenizer.model_max_length = args.ctx_len + 1
@@ -337,7 +267,6 @@ class MyModule(LightningModule):
 
     def forward(self, x):
         output = self.model(x, 0)
-        # logits = self.LMhead(output)
         return output
 
     def training_step(self, batch, batch_idx):
@@ -360,6 +289,28 @@ class MyModule(LightningModule):
         loss = self.compute_loss(logits, targets, mask)
         return loss
 
+    def predict_step(self, batch, batch_idx):
+        if "super_glue" in self.args.data_type:
+            passage = batch["passage"][0]
+            question = batch["question"][0]
+            # print(batch["label"])
+            input_text = [f"Passage: {passage} Question: {question} Is this question True or False? I think it is "]
+            input_text = self.pad_tokenizer(input_text, return_tensors="pt", padding=True, truncation=True)
+            idx, mask, targets = self.mask_tensor(input_text)
+            for _ in range(10):
+                # print(_)
+                size = idx.size(1)
+                idx = torch.cat([idx, torch.zeros(1, 1024 - idx.size(1), dtype=torch.long).to(idx.device)], dim=-1)
+                logits = self.forward(idx)
+                logits = logits[:, :size].contiguous()
+                logits = rearrange(logits, "b n d -> (b n) d")
+                output = self.sample_top_p(logits, 10)
+                output = rearrange(output, "(1 n) -> 1 n")
+                # print(self.pad_tokenizer.decode(idx[0, :]))
+                idx = idx[:, :size].contiguous()
+                idx = torch.cat([idx, output[:, -1:]], dim=-1).contiguous()
+                # print(self.pad_tokenizer.decode(output[0, :]))
+            print(self.pad_tokenizer.decode(idx[0, :]))
 
     def mask_tensor(self,
                     batch: dict, ):
@@ -383,10 +334,21 @@ class MyModule(LightningModule):
         sum_mask = torch.sum(mask).item()
         if sum_mask == mask.shape[0]:
             loss = torch.nn.functional.cross_entropy(logits, targets)
-            # print('rank', self.global_rank, 'loss', loss.item())
         else:
             loss = torch.nn.functional.cross_entropy(logits, targets, reduction='none')
-            # loss_raw = loss
             loss = torch.sum(loss * mask) / sum_mask
 
         return loss
+
+    @staticmethod
+    def sample_top_p(probs, p, temperature=0.5):
+        probs = F.softmax(probs / temperature, dim=-1)
+        probs_sort, probs_idx = torch.sort(probs, dim=-1, descending=True)
+        probs_sum = torch.cumsum(probs_sort, dim=-1)
+        mask = probs_sum - probs_sort > p
+        probs_sort[mask] = 0.0
+        probs_sort.div_(probs_sort.sum(dim=-1, keepdim=True))
+        next_token = torch.multinomial(probs_sort, num_samples=1)
+        next_token = torch.gather(probs_idx, -1, next_token)
+        return next_token[:, 0]
+

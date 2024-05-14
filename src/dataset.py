@@ -6,6 +6,26 @@ import os
 from torch.utils.data import Dataset, DataLoader
 from lightning.pytorch.utilities.rank_zero import rank_zero_info
 
+
+def load_wikitext(args):
+    import tokenizers
+    from tqdm import tqdm
+    if os.path.isfile("/home/qingyu_yin/data/RWKV/WikiText-103/wiki.train.raw.pt"):
+        dataset = torch.load("/home/qingyu_yin/data/RWKV/WikiText-103/wiki.train.raw.pt")
+    else:
+        dataset_file = "/home/qingyu_yin/data/RWKV/WikiText-103/wiki.train.raw"
+        tokenizer = tokenizers.Tokenizer.from_file("src/tokenizer.json")
+        with open(dataset_file, "r", encoding="utf-8") as f:
+            dataset = f.readlines()
+        dataset = list(tokenizer.encode(
+            line.strip(' ').replace('\n', '[SEP]').replace('<unk>', '[UNK]')).ids for line in tqdm(dataset))
+        dataset = torch.tensor([index for line in dataset for index in line], dtype=torch.long)
+        torch.save(dataset, "/home/qingyu_yin/data/RWKV/WikiText-103/wiki.train.raw.pt")
+    num_sequences = (dataset.size(0) // args.ctx_len) * args.ctx_len
+    dataset = dataset.narrow(0, 0, num_sequences).view(-1, args.ctx_len)
+    return DataLoader(dataset, batch_size=args.micro_bsz)
+
+
 class load_minipile(lightning.LightningDataModule):
     def __init__(self, args, data_type="train"):
         super().__init__()
