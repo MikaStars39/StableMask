@@ -1,7 +1,7 @@
 # StableMask: Refining Causal Masking in Decoder-only Transformer
 
 ![sm](sm.png "StableMask Architecture")
-![sm_cover](sm_cover.png "StableMask Architecture")
+<img src="sm_cover.png" alt="sm_cover" width="400" height="400">
 > **StableMask: Refining Causal Masking in Decoder-only Transformer**\
 > Qingyu Yin, Xuzheng He, Xiang Zhuang, Yu Zhao, Jianhua Yao, Xiaoyu Shen, Qiang Zhang\
 > Paper: [https://arxiv.org/abs/2402.04779](https://arxiv.org/abs/2402.04779)
