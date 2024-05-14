@@ -1,13 +1,9 @@
 #!/bin/bash
 # shellcheck disable=SC2034
 # -name
-export CXX=g++
 time=$(date "+%Y_%m_%d-%H_%M_%S")
 project_name="miniGPT-${time}"
 echo "${time}"
-set -x
-export TORCH_DISTRIBUTED_DEBUG=INFO
-export HF_ENDPOINT=https://hf-mirror.com
 
 python main.py \
 --mode "train" \
@@ -36,8 +32,8 @@ python main.py \
 --adam_eps 1e-8 \
 --accelerator gpu \
 --num_nodes 1 \
---devices 2 \
---precision fp16 \
+--devices 1 \
+--precision bf16 \
 --strategy ddp_find_unused_parameters_False \
 #--strategy ddp_find_unused_parameters_False \
 
