@@ -1,4 +1,3 @@
-# StableMask: Refining Causal Masking in Decoder-only Transformer
 <img src="sm_cover.png" alt="sm_cover" width="500" height="500">
 
 > **StableMask: Refining Causal Masking in Decoder-only Transformer**\
