@@ -37,7 +37,7 @@ pip install -r requirements.txt
 ## Pretraining
 Here we provide a guide for pretraining a toy example using the wikitext-103 dataset.
 
-### 1. Dataset preparing.
+### 1. Dataset Preparation
    
 First make sure that you are under the stablemask folder. We create a folder for our dataset.
 ```
@@ -57,11 +57,20 @@ Download wikitext-103 dataset with huggingface-cli:
 huggingface-cli download --repo-type dataset --resume-download wikitext --local-dir wikitext --local-dir-use-symlinks False
 ```
 
-### 2. 
+### 2. Pretraining
 
-## Finetuning
+First run a simple test for checking the environment availability:
 
-## Inference
+```
+python test_environment.py
+```
+
+Run the shell script to start training:
+
+```
+bash run.sh
+```
+
 
 ## Citation
 Please cite:
