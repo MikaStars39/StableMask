@@ -1,0 +1,25 @@
+accelerate==0.24.1
+datasets==2.14.6
+deepspeed==0.11.1
+einops==0.7.0
+huggingface-hub==0.17.3
+lightning==2.1.0
+lightning-utilities==0.9.0
+-e git+https://github.com/facebookresearch/llama.git@54d44631054deae836aec8ceff92dcf8f20ca9e7#egg=llama
+matplotlib==3.7.4
+ninja==1.11.1.1
+numpy==1.24.1
+packaging==23.2
+pandas==2.0.3
+peft==0.6.2
+Pillow==9.3.0
+pyparsing==3.1.1
+safetensors==0.4.0
+seaborn==0.13.0
+sentencepiece==0.1.99
+tokenizers==0.14.1
+torch==2.1.0+cu118
+tqdm==4.66.1
+transformers==4.34.1
+triton==2.1.0
+wandb==0.15.12
