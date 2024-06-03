@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 import math
 from typing import Tuple
 
-
 def visualize_attention(attention_list):
     """
     Visualizes attention matrices for each head in each layer.

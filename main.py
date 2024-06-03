@@ -138,7 +138,7 @@ if __name__ == "__main__":
     else:
         args.precision = "bf16"
 
-    from src.modeling_llama import MyModule
+    from src.model import MyModule
     model = MyModule(args)
 
     if args.load_model != "":
