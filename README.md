@@ -6,6 +6,8 @@
 
 ## News
 
+**2024/06/11** Talk at AITIME, check [here](https://live.bilibili.com/21813994) for livestream! 
+
 **2024/05/02** 🔥 Our paper has been accepted by ICML'24! See you in Vienna!
 
 **2024/02/10** 📖 We have uploaded our preprint to ArXiv!
