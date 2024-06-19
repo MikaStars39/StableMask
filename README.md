@@ -67,11 +67,12 @@ First run a simple test for checking the environment availability:
 python test_environment.py
 ```
 
-Run the shell script to start training:
+Run the script to start training:
 
 ```
 bash run.sh
 ```
+
 
 
 ## Citation
